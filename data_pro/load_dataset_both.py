@@ -10,8 +10,8 @@ COCH_CHANNELS = 11
 TIME_STEPS_PER_SLICE = 44
 
 # 1. 读取元数据 (这部分保持不变)
-# metadata = pd.read_csv('../../data/data.csv')
-metadata = pd.read_csv('../data/data.csv')
+metadata = pd.read_csv('../../data/data.csv')
+# metadata = pd.read_csv('../data/data.csv')
 audio_ids = metadata['audio_id'].values.astype(str)
 coch_paths = metadata['cochleagram_path'].values
 mel_paths = metadata['mel_spectrogram_path'].values
@@ -30,13 +30,13 @@ va_paths = va_paths[indices]
 
 # 2. 数据加载函数 (这部分保持不变)
 def load_data(coch_path, mel_path, va_path):
-    # coch = np.load('../' + coch_path.decode('utf-8')).astype(np.float32)
-    # mel = np.load('../' + mel_path.decode('utf-8')).astype(np.float32)
-    # va = np.load('../' + va_path.decode('utf-8')).astype(np.float32)
+    coch = np.load('../' + coch_path.decode('utf-8')).astype(np.float32)
+    mel = np.load('../' + mel_path.decode('utf-8')).astype(np.float32)
+    va = np.load('../' + va_path.decode('utf-8')).astype(np.float32)
 
-    coch = np.load(coch_path.decode('utf-8')).astype(np.float32)
-    mel = np.load(mel_path.decode('utf-8')).astype(np.float32)
-    va = np.load(va_path.decode('utf-8')).astype(np.float32)
+    # coch = np.load(coch_path.decode('utf-8')).astype(np.float32)
+    # mel = np.load(mel_path.decode('utf-8')).astype(np.float32)
+    # va = np.load(va_path.decode('utf-8')).astype(np.float32)
     return coch, mel, va
 
 # 3. 数据预处理与重塑函数 (***核心修改***)

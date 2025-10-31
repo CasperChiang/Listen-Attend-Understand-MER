@@ -13,7 +13,8 @@ import os
 
 # --- 关键配置 ---
 # !!! 请确保这里的路径指向你训练好的模型文件 !!!
-MODEL_PATH = '../result/transformer_both.keras'
+# MODEL_PATH = '../result/transformer_both.keras'
+MODEL_PATH = '../result/transformer_mel.keras'
 
 # 假设你的数据加载脚本是正确的
 # 这将从测试集中加载数据
