@@ -1,22 +1,42 @@
+# -------------------------------------------------------------------
+# 文件名: evaluate_model.py
+# 描述: 用于评估训练好的音乐情感识别模型的脚本。
+#       加载模型和测试数据，计算并打印 CCC, R^2, 和 RMSE 指标。
+# -------------------------------------------------------------------
+
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow.keras import layers
 import numpy as np
 from sklearn.metrics import r2_score, mean_squared_error
 import os
 
+# --- 关键配置 ---
+# !!! 请确保这里的路径指向你训练好的模型文件 !!!
+MODEL_PATH = '../result/transformer_both.keras'
 
-# ==============================================================================
-#                      加载模型所需的自定义对象
-# ==============================================================================
-# Keras 加载模型时需要知道这些自定义对象的定义。
+# 假设你的数据加载脚本是正确的
+# 这将从测试集中加载数据
+try:
+    from data_pro.load_dataset_both import test_dataset
+except ImportError:
+    print("错误: 无法从 'data_pro.load_dataset_both' 导入 test_dataset。")
+    print("请确保 evaluate_model.py 文件与 data_pro 目录处于正确的相对位置。")
+    exit()
 
-class PositionalEncoding(keras.layers.Layer):
-    # 添加一个 alpha 参数
-    def __init__(self, position, d_model, alpha=0.1, **kwargs):
+print("TensorFlow Version:", tf.__version__)
+
+
+# region Keras 自定义对象定义
+# 在加载模型时，Keras 需要知道所有自定义层和函数的定义。
+# 因此，我们从训练脚本中复制这些定义。
+
+# --- 位置编码层 ---
+class PositionalEncoding(layers.Layer):
+    def __init__(self, position, d_model, alpha=0.3, **kwargs):
         super(PositionalEncoding, self).__init__(**kwargs)
         self.position = position
         self.d_model = d_model
-        # 将 alpha 保存为成员变量
         self.alpha = alpha
         self.pos_encoding = self.positional_encoding(position, d_model)
 
@@ -36,7 +56,6 @@ class PositionalEncoding(keras.layers.Layer):
         return tf.cast(pos_encoding, tf.float32)
 
     def call(self, inputs):
-        # 核心改动：在相加前乘以 alpha
         scaled_pos_encoding = self.alpha * self.pos_encoding[:, :tf.shape(inputs)[1], :]
         return inputs + scaled_pos_encoding
 
@@ -45,7 +64,7 @@ class PositionalEncoding(keras.layers.Layer):
         config.update({
             'position': self.position,
             'd_model': self.d_model,
-            'alpha': self.alpha  # 确保 alpha 可以被保存
+            'alpha': self.alpha
         })
         return config
 
@@ -53,22 +72,18 @@ class PositionalEncoding(keras.layers.Layer):
     def from_config(cls, config):
         return cls(**config)
 
-# 在构建模型时使用：
-# positional_encoder = PositionalEncoding(SEQUENCE_LENGTH, MODEL_DIM, alpha=0.1) # 可以尝试不同的 alpha 值
 
-
+# --- CCC 损失/指标函数 ---
 def _ccc_per_channel(y_true, y_pred, eps=1e-8):
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
     y_true = tf.reshape(y_true, [-1, tf.shape(y_true)[-1]])
     y_pred = tf.reshape(y_pred, [-1, tf.shape(y_pred)[-1]])
-
     true_mean = tf.reduce_mean(y_true, axis=0)
     pred_mean = tf.reduce_mean(y_pred, axis=0)
     true_var = tf.math.reduce_variance(y_true, axis=0)
     pred_var = tf.math.reduce_variance(y_pred, axis=0)
     cov = tf.reduce_mean((y_true - true_mean) * (y_pred - pred_mean), axis=0)
-
     ccc = (2.0 * cov) / (true_var + pred_var + tf.square(true_mean - pred_mean) + eps)
     return ccc
 
@@ -83,102 +98,105 @@ def ccc_metric(y_true, y_pred):
     return tf.reduce_mean(ccc)
 
 
-def np_ccc(y_true, y_pred, eps=1e-8):
-    """NumPy version of CCC for final evaluation."""
-    true_mean = np.mean(y_true)
-    pred_mean = np.mean(y_pred)
-    true_var = np.var(y_true)
-    pred_var = np.var(y_pred)
-    cov = np.mean((y_true - true_mean) * (y_pred - pred_mean))
-    ccc = (2.0 * cov) / (true_var + pred_var + (true_mean - pred_mean) ** 2 + eps)
-    return ccc
+# endregion
 
-
-# ==============================================================================
-#                              主评估函数
-# ==============================================================================
-
-def evaluate(model_path):
+def evaluate():
     """
-    加载模型和测试数据，并计算详细的评估指标。
+    主评估函数：加载模型，进行预测，并计算各项指标。
     """
-    if not os.path.exists(model_path):
-        print(f"错误: 模型文件未找到于 '{model_path}'")
+    if not os.path.exists(MODEL_PATH):
+        print(f"错误: 模型文件未找到于 '{MODEL_PATH}'")
         return
 
-    print("--- 正在加载模型和数据 ---")
+    # 1. 加载模型
+    print(f"正在从 '{MODEL_PATH}' 加载模型...")
     custom_objects = {
         'PositionalEncoding': PositionalEncoding,
         'ccc_loss': ccc_loss,
         'ccc_metric': ccc_metric
     }
-    model = keras.models.load_model(model_path, custom_objects=custom_objects)
-    print(f"模型 '{model_path}' 加载成功。")
-
     try:
-        from data_pro.load_dataset_both import test_dataset
-        print("测试数据集加载成功。")
-    except ImportError:
-        print("错误: 无法导入 'test_dataset'。请确保 'load_dataset.py' 文件在当前目录中。")
+        model = keras.models.load_model(MODEL_PATH, custom_objects=custom_objects)
+        print("模型加载成功！")
+    except Exception as e:
+        print(f"加载模型时发生错误: {e}")
         return
 
-    print("\n--- 正在生成预测 ---")
-    all_predictions, all_labels = [], []
+    # 2. 逐批次进行预测并收集真实标签和预测结果
+    print("\n正在对测试集进行逐批次预测并收集结果...")
+    y_true_list = []
+    y_pred_list = []
+
+    # 遍历测试数据集的每一个批次
     for (mel_batch, coch_batch), labels_batch in test_dataset:
-        predictions_batch = model.predict_on_batch((mel_batch, coch_batch))
-        all_predictions.append(predictions_batch)
-        all_labels.append(labels_batch.numpy())
+        # 对当前批次进行预测
+        # model.predict_on_batch 比 model.predict 更适合在循环中使用
+        predictions = model.predict_on_batch([mel_batch, coch_batch])
 
-    y_pred = np.concatenate(all_predictions, axis=0)
-    y_true = np.concatenate(all_labels, axis=0)
-    y_pred_flat = y_pred.reshape(-1, y_pred.shape[-1])
-    y_true_flat = y_true.reshape(-1, y_true.shape[-1])
-    print(f"已处理完所有测试样本，总时间步数: {y_pred_flat.shape[0]}")
+        # 模型的输出是一个列表 [va_output, attention_scores]
+        # 我们只需要第一个输出
+        y_pred_va_batch = predictions[0]
 
-    print("\n--- 正在计算评估指标 ---")
-    y_true_v, y_pred_v = y_true_flat[:, 0], y_pred_flat[:, 0]
-    y_true_a, y_pred_a = y_true_flat[:, 1], y_pred_flat[:, 1]
+        # 将当前批次的真实标签和预测结果添加到列表中
+        y_true_list.append(labels_batch.numpy())
+        y_pred_list.append(y_pred_va_batch)
 
-    # 计算 Valence 指标
-    ccc_v, mae_v = np_ccc(y_true_v, y_pred_v), np.mean(np.abs(y_true_v - y_pred_v))
-    rmse_v, r2_v = np.sqrt(mean_squared_error(y_true_v, y_pred_v)), r2_score(y_true_v, y_pred_v)
+    # 检查是否收集到了数据
+    if not y_true_list:
+        print("错误：测试数据集为空或无法提取标签。")
+        return
 
-    # 计算 Arousal 指标
-    ccc_a, mae_a = np_ccc(y_true_a, y_pred_a), np.mean(np.abs(y_true_a - y_pred_a))
-    rmse_a, r2_a = np.sqrt(mean_squared_error(y_true_a, y_pred_a)), r2_score(y_true_a, y_pred_a)
+    # 3. 将所有批次的结果连接成一个大的Numpy数组
+    # 现在 y_true_list 和 y_pred_list 都是 NumPy 数组的列表，可以安全地连接
+    y_true = np.concatenate(y_true_list, axis=0)
+    y_pred_va = np.concatenate(y_pred_list, axis=0)
 
-    # 计算 VA 整体指标
-    ccc_overall = (ccc_v + ccc_a) / 2.0  # 新增
-    mae_overall = np.mean(np.abs(y_true_flat - y_pred_flat))  # 新增
-    rmse_overall = np.sqrt(mean_squared_error(y_true_flat, y_pred_flat))
-    r2_overall = r2_score(y_true_flat, y_pred_flat, multioutput='uniform_average')
+    print(f"真实标签数组的总形状: {y_true.shape}")
+    print(f"预测值数组的总形状: {y_pred_va.shape}")
 
-    # --- 打印报告 ---
-    print("\n" + "=" * 50)
-    print(" " * 15 + "模型评估报告")
-    print("=" * 50)
-    print(f"\n模型文件: {model_path}\n")
-    print("--- 单独评估结果 (Individual Metrics) ---")
-    print(f"Valence - CCC:   {ccc_v:.4f}")
-    print(f"Valence - MAE:   {mae_v:.4f}")
-    print(f"Valence - RMSE:  {rmse_v:.4f}")
-    print(f"Valence - R²:    {r2_v:.4f}")
-    print("-" * 50)
-    print(f"Arousal - CCC:   {ccc_a:.4f}")
-    print(f"Arousal - MAE:   {mae_a:.4f}")
-    print(f"Arousal - RMSE:  {rmse_a:.4f}")
-    print(f"Arousal - R²:    {r2_a:.4f}")
-    print("\n--- 整体评估结果 (Overall Metrics) ---")
-    print(f"Overall - CCC:   {ccc_overall:.4f} (average of V and A)")  # 新增
-    print(f"Overall - MAE:   {mae_overall:.4f}")  # 新增
-    print(f"Overall - RMSE:  {rmse_overall:.4f}")
-    print(f"Overall - R²:    {r2_overall:.4f} (uniform average)")
-    print("=" * 50)
+    # 4. 预处理标签和预测值以进行评估 (这部分和原来一样)
+    num_dims = y_true.shape[-1]
+    if num_dims != 2:
+        print(f"错误：期望标签的最后一个维度为2（V和A），但得到 {num_dims}")
+        return
+
+    y_true_reshaped = y_true.reshape(-1, num_dims)
+    y_pred_reshaped = y_pred_va.reshape(-1, num_dims)
+
+    # 分离 Valence 和 Arousal
+    y_true_v = y_true_reshaped[:, 0]
+    y_true_a = y_true_reshaped[:, 1]
+    y_pred_v = y_pred_reshaped[:, 0]
+    y_pred_a = y_pred_reshaped[:, 1]
+
+    # 5. 计算各项指标 (这部分和原来一样)
+    print("\n--- 模型性能评估结果 ---")
+
+    # --- CCC (Concordance Correlation Coefficient) ---
+    ccc_scores = _ccc_per_channel(y_true_reshaped, y_pred_reshaped).numpy()
+    ccc_v = ccc_scores[0]
+    ccc_a = ccc_scores[1]
+
+    # --- R^2 (R-squared) ---
+    r2_v = r2_score(y_true_v, y_pred_v)
+    r2_a = r2_score(y_true_a, y_pred_a)
+
+    # --- RMSE (Root Mean Squared Error) ---
+    rmse_v = np.sqrt(mean_squared_error(y_true_v, y_pred_v))
+    rmse_a = np.sqrt(mean_squared_error(y_true_a, y_pred_a))
+
+    # 6. 打印结果 (这部分和原来一样)
+    print("\n[Valence (效价)]")
+    print(f"  CCC   : {ccc_v:.4f}")
+    print(f"  R^2   : {r2_v:.4f}")
+    print(f"  RMSE  : {rmse_v:.4f}")
+
+    print("\n[Arousal (唤醒度)]")
+    print(f"  CCC   : {ccc_a:.4f}")
+    print(f"  R^2   : {r2_a:.4f}")
+    print(f"  RMSE  : {rmse_a:.4f}")
+    print("\n--------------------------")
 
 
-if __name__ == '__main__':
-    # --- 在这里直接指定要评估的模型文件 ---
-    MODEL_TO_EVALUATE = '../result/transformer_both.keras'
-
-    print(f"准备评估模型: {MODEL_TO_EVALUATE}")
-    evaluate(MODEL_TO_EVALUATE)
+if __name__ == "__main__":
+    evaluate()

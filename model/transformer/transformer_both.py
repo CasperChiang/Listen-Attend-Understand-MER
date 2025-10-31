@@ -82,7 +82,7 @@ coch_cnn = build_coch_cnn(COCH_SHAPE, CNN_OUTPUT_DIM)
 # --- 位置编码 (与原来相同) ---
 class PositionalEncoding(layers.Layer):
     # 添加一个 alpha 参数
-    def __init__(self, position, d_model, alpha=0.5, **kwargs):
+    def __init__(self, position, d_model, alpha=0.3, **kwargs):
         super(PositionalEncoding, self).__init__(**kwargs)
         self.position = position
         self.d_model = d_model
@@ -260,7 +260,7 @@ history = model.fit(
         keras.callbacks.ReduceLROnPlateau(monitor='val_va_output_ccc_metric', mode='max',
                                           factor=0.4, patience=3, min_lr=1e-7, verbose=1),
         keras.callbacks.EarlyStopping(monitor='val_va_output_ccc_metric', mode='max',
-                                      patience=10, restore_best_weights=True)
+                                      patience=6, restore_best_weights=True)
     ]
 )
 
